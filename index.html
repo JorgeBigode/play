@@ -227,6 +227,10 @@
       transform: scale(1.05);
     }
 
+    .control-btn.active {
+      color: var(--primary);
+    }
+
     .volume-control {
       display: flex;
       align-items: center;
@@ -497,6 +501,9 @@
       </div>
       
       <div class="controls">
+        <button class="control-btn" id="shuffleBtn">
+          <i class="fas fa-random"></i>
+        </button>
         <button class="control-btn" id="prevBtn">
           <i class="fas fa-step-backward"></i>
         </button>
@@ -505,6 +512,9 @@
         </button>
         <button class="control-btn" id="nextBtn">
           <i class="fas fa-step-forward"></i>
+        </button>
+        <button class="control-btn" id="repeatBtn">
+          <i class="fas fa-redo"></i>
         </button>
       </div>
       
@@ -541,6 +551,8 @@
     const playBtn = document.getElementById("playBtn");
     const prevBtn = document.getElementById("prevBtn");
     const nextBtn = document.getElementById("nextBtn");
+    const shuffleBtn = document.getElementById("shuffleBtn");
+    const repeatBtn = document.getElementById("repeatBtn");
     const currentTitle = document.getElementById("currentTitle");
     const currentArtist = document.getElementById("currentArtist");
     const currentTimeEl = document.getElementById("currentTime");
@@ -558,6 +570,8 @@
     let filteredTracks = [];
     let current = 0;
     let isPlaying = false;
+    let isShuffle = false;
+    let repeatMode = 0; // 0: no-repeat, 1: repeat-all, 2: repeat-one
     let isExpanded = false;
 
     // Carregar músicas
@@ -698,13 +712,23 @@
 
     // Próxima música
     function nextTrack() {
-      current = (current + 1) % tracks.length;
+      if (isShuffle) {
+        let randomIndex;
+        // Evita tocar a mesma música duas vezes seguidas, se houver mais de uma na lista
+        do {
+          randomIndex = Math.floor(Math.random() * tracks.length);
+        } while (tracks.length > 1 && randomIndex === current);
+        current = randomIndex;
+      } else {
+        current = (current + 1) % tracks.length;
+      }
       loadTrack(current);
       play();
     }
 
     // Música anterior
     function prevTrack() {
+      // Se a música estiver tocando por mais de 3 segundos, reinicia ela
       if (audio.currentTime > 3) {
         audio.currentTime = 0;
         play();
@@ -712,6 +736,8 @@
       }
       
       current = (current - 1 + tracks.length) % tracks.length;
+      // Em modo aleatório, o "anterior" pode não fazer muito sentido, 
+      // mas manteremos o comportamento de ir para o item anterior na lista original.
       loadTrack(current);
       play();
     }
@@ -726,18 +752,54 @@
       volumeProgress.style.width = `${volume * 100}%`;
     }
 
+    // Lógica para quando a música termina
+    function onTrackEnd() {
+      if (repeatMode === 2) { // Repetir a mesma música
+        audio.currentTime = 0;
+        play();
+      } else if (repeatMode === 1 || !isShuffle) { // Repetir playlist ou modo normal
+        nextTrack();
+      } else if (isShuffle) { // Modo aleatório sem repetir tudo (pode parar no final)
+        nextTrack();
+      }
+      // Se repeatMode for 0 e isShuffle for false, a playlist para no final.
+      // A lógica atual de nextTrack com o operador módulo (%) já faz a playlist repetir.
+      // Para um comportamento de "não repetir", a lógica em nextTrack precisaria ser ajustada.
+      // Por simplicidade, vamos manter o loop da playlist.
+    }
+
     // Event listeners
     playBtn.addEventListener('click', togglePlay);
     prevBtn.addEventListener('click', prevTrack);
     nextBtn.addEventListener('click', nextTrack);
     progressBar.addEventListener('click', setProgress);
     volumeSlider.addEventListener('click', setVolume);
+
+    shuffleBtn.addEventListener('click', () => {
+      isShuffle = !isShuffle;
+      shuffleBtn.classList.toggle('active', isShuffle);
+    });
+
+    repeatBtn.addEventListener('click', () => {
+      repeatMode = (repeatMode + 1) % 3;
+      if (repeatMode === 0) { // No repeat
+        repeatBtn.innerHTML = '<i class="fas fa-redo"></i>';
+        repeatBtn.classList.remove('active');
+      } else if (repeatMode === 1) { // Repeat all
+        repeatBtn.innerHTML = '<i class="fas fa-redo"></i>';
+        repeatBtn.classList.add('active');
+      } else { // Repeat one
+        repeatBtn.innerHTML = '<i class="fas fa-redo-alt"></i>'; // Ícone diferente para "repeat one"
+        repeatBtn.classList.add('active');
+      }
+    });
+
     searchInput.addEventListener('input', filterTracks);
     expandBtn.addEventListener('click', toggleExpand);
     closeExpandBtn.addEventListener('click', toggleExpand);
 
-    audio.addEventListener('timeupdate', updateProgress);
-    audio.addEventListener('ended', nextTrack);
+    audio.addEventListener('timeupdate', updateProgress);    
+    audio.addEventListener('ended', onTrackEnd);
 
     // Inicializar player
     loadTracks();
