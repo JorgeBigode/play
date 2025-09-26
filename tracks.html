@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Gerador simples de tracks.json</title>
+  <style>
+    body{font-family:Arial,Helvetica,sans-serif;margin:18px;color:#111}
+    input[type=file]{display:block;margin-bottom:10px}
+    .track{padding:8px;border:1px solid #e6e6e6;border-radius:6px;margin-bottom:8px}
+    button{padding:8px 10px;border-radius:6px;border:0;background:#0ea5a4;color:#022;cursor:pointer}
+    pre{background:#f6f6f6;padding:10px;border-radius:6px;overflow:auto}
+  </style>
+</head>
+<body>
+  <h2>Gerador simples de tracks.json</h2>
+  <p>Seleciona arquivos e gera JSON com <code>title, artist, file</code> — sem ler metadados pesados.</p>
+  <input id="files" type="file" accept="audio/*" multiple>
+  <div id="list"></div>
+  <div style="margin-top:8px">
+    <button id="gen">Gerar JSON</button>
+    <button id="copy" disabled>Copiar</button>
+    <a id="download" style="display:inline-block;margin-left:8px;text-decoration:none;" hidden>Download</a>
+  </div>
+  <h3>Preview</h3>
+  <pre id="preview">[]</pre>
+
+<script>
+const filesInput = document.getElementById('files');
+const list = document.getElementById('list');
+const gen = document.getElementById('gen');
+const preview = document.getElementById('preview');
+const copy = document.getElementById('copy');
+const download = document.getElementById('download');
+let items = []; // {file, title, artist}
+
+filesInput.addEventListener('change', ()=>{
+  items = Array.from(filesInput.files).map(f=>({file:f, title:f.name.replace(/\.[^/.]+$/, ''), artist:'Desconhecido'}));
+  renderList();
+});
+
+function renderList(){
+  list.innerHTML = '';
+  items.forEach((it,idx)=>{
+    const d = document.createElement('div'); d.className='track';
+    d.innerHTML = `
+      <div><strong>${idx+1} — ${escapeHtml(it.file.name)}</strong></div>
+      <div style="margin-top:6px">
+        <input data-idx="${idx}" data-field="title" value="${escapeHtml(it.title)}" style="width:60%;padding:6px;margin-right:6px" />
+        <input data-idx="${idx}" data-field="artist" value="${escapeHtml(it.artist)}" style="width:35%;padding:6px" />
+      </div>
+    `;
+    list.appendChild(d);
+  });
+  list.querySelectorAll('input').forEach(i=>i.addEventListener('input', onMeta));
+}
+
+function onMeta(e){
+  const idx = Number(e.target.dataset.idx); const field = e.target.dataset.field;
+  items[idx][field] = e.target.value;
+}
+
+function buildJSON(){
+  // file path uses prefix 'music/' + original filename by default
+  return items.map(it=>({ title: it.title || it.file.name, artist: it.artist || 'Desconhecido', file: 'music/' + it.file.name }));
+}
+
+gen.addEventListener('click', ()=>{
+  if(items.length===0){ alert('Nenhum arquivo selecionado'); return; }
+  const obj = buildJSON();
+  const txt = JSON.stringify(obj, null, 2);
+  preview.textContent = txt;
+  copy.disabled = false;
+  const blob = new Blob([txt], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  download.href = url; download.download = 'tracks.json'; download.hidden = false; download.textContent = 'Download tracks.json';
+});
+
+copy.addEventListener('click', ()=>{
+  navigator.clipboard.writeText(preview.textContent).then(()=>alert('JSON copiado'));
+});
+
+function escapeHtml(s){ return (s+'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+</script>
+</body>
+</html>
