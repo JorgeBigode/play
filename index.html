@@ -105,22 +105,20 @@
       overflow: hidden;
       box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4);
       position: relative;
+      background: var(--secondary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
     }
 
-    .album-art img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
+    .album-art-fallback {
+      font-size: 100px;
+      color: var(--gray);
     }
 
-    .album-art::after {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: linear-gradient(to bottom, transparent 0%, rgba(0, 0, 0, 0.5) 100%);
+    #visualizer-canvas {
+      width: 150px;
+      height: 150px;
     }
 
     .track-info h2 {
@@ -482,7 +480,9 @@
       </div>
 
       <div class="album-art">
-        <img src="https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=500&q=80" alt="Album Art">
+        <div class="album-art-fallback">
+          <canvas id="visualizer-canvas"></canvas>
+        </div>
       </div>
       
       <div class="track-info">
@@ -560,8 +560,8 @@
     const progressBar = document.querySelector(".progress-bar");
     const progress = document.querySelector(".progress");
     const volumeSlider = document.querySelector(".volume-slider");
-    const volumeProgress = document.querySelector(".volume-progress");
-    const albumArt = document.querySelector(".album-art img");
+    const volumeProgress = document.querySelector(".volume-progress");    
+    const albumArtFallback = document.querySelector(".album-art-fallback");
     const searchInput = document.getElementById("searchInput");
     const expandBtn = document.getElementById("expandBtn");
     const closeExpandBtn = document.getElementById("closeExpandBtn");
@@ -574,6 +574,14 @@
     let repeatMode = 0; // 0: no-repeat, 1: repeat-all, 2: repeat-one
     let isExpanded = false;
 
+    // Web Audio API para o visualizador
+    let audioContext;
+    let analyser;
+    let source;
+    let dataArray;
+    let canvas;
+    let canvasCtx;
+
     // Carregar músicas
     async function loadTracks() {
       try {
@@ -583,7 +591,8 @@
         renderPlaylist();
         loadTrack(0);
       } catch (e) {
-        playlistEl.innerHTML = "<p class='no-results'>❌ Não foi possível carregar tracks.json</p>";
+        console.error("Erro ao carregar tracks.json:", e);
+        playlistEl.innerHTML = `<p class='no-results'>❌ Não foi possível carregar as músicas. Verifique se o arquivo 'tracks.json' está correto e se você está usando um servidor local (Live Server).<br><small>Erro: ${e.message}</small></p>`;
       }
     }
 
@@ -656,11 +665,6 @@
       currentTitle.textContent = tracks[current].title || tracks[current].file;
       currentArtist.textContent = tracks[current].artist || "Artista Desconhecido";
       
-      // Se houver imagem na track, usar, senão manter a padrão
-      if (tracks[current].image) {
-        albumArt.src = tracks[current].image;
-      }
-      
       renderPlaylist();
     }
 
@@ -695,7 +699,82 @@
     function play() {
       isPlaying = true;
       audio.play();
+      // Inicia o visualizador se ainda não estiver rodando
+      if (!audioContext) {
+        initAudioVisualizer();
+      }
+      renderVisualizer();
       playBtn.innerHTML = '<i class="fas fa-pause"></i>';
+    }
+
+    // Inicializa a Web Audio API
+    function initAudioVisualizer() {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioContext.createAnalyser();
+      source = audioContext.createMediaElementSource(audio);
+      
+      source.connect(analyser);
+      analyser.connect(audioContext.destination);
+      
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.85; // Aumenta a suavização (padrão é 0.8)
+      const bufferLength = analyser.frequencyBinCount;
+      dataArray = new Uint8Array(bufferLength);
+
+      canvas = document.getElementById('visualizer-canvas');
+      canvasCtx = canvas.getContext('2d');
+      canvas.width = 150;
+      canvas.height = 150;
+    }
+
+    // Loop de renderização do visualizador
+    function renderVisualizer() {
+      if (!isPlaying) return; // Para o loop se a música estiver pausada
+
+      requestAnimationFrame(renderVisualizer);
+      
+      analyser.getByteFrequencyData(dataArray);
+      
+      canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const totalBars = 72; // Número total de barras no círculo
+      const radius = 40; // Raio do círculo interno
+      const centerX = canvas.width / 2;
+      const centerY = canvas.height / 2;
+      const maxBarHeight = 40; // Altura máxima que uma barra pode atingir
+
+      // Função para desenhar uma barra
+      const drawBar = (angle, height, color) => {
+        const barWidth = 3;
+        canvasCtx.save();
+        canvasCtx.translate(centerX, centerY);
+        canvasCtx.rotate(angle);
+        
+        canvasCtx.fillStyle = color;
+        canvasCtx.fillRect(radius, -barWidth / 2, height, barWidth);
+        
+        canvasCtx.restore();
+      };
+
+      const halfBarCount = totalBars / 2;
+      const freqCount = analyser.frequencyBinCount; // 128
+
+      for (let i = 0; i < totalBars; i++) {
+        const angle = (i / totalBars) * 2 * Math.PI;
+
+        // Mapeamento simétrico por quadrante para um visual equilibrado
+        const quadrant = Math.floor(i / (totalBars / 4));
+        const indexInQuadrant = i % (totalBars / 4);
+        const symmetricalIndex = quadrant % 2 === 0 ? indexInQuadrant : (totalBars / 4) - indexInQuadrant;
+
+        const dataIndex = Math.floor(Math.pow(symmetricalIndex / (totalBars / 4), 2) * (freqCount * 0.7)) + 2;
+        
+        const value = dataArray[dataIndex] || 0;
+        const barHeight = (value / 255) * maxBarHeight;
+        const hue = 120 - value; // Verde para baixo, Vermelho para alto
+
+        drawBar(angle, barHeight, `hsl(${hue}, 100%, 50%)`);
+      }
     }
 
     // Pausar música
